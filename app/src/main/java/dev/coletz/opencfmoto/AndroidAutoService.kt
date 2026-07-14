@@ -12,7 +12,6 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import dev.coletz.opencfmoto.aa.AaReceiver
-import dev.coletz.opencfmoto.aa.ServiceDiscoveryResponse
 
 /**
  * Foreground service that hosts the Android Auto receiver end-to-end (M4):
@@ -83,12 +82,15 @@ class AndroidAutoService : Service() {
     private fun startReceiver() {
         if (receiver != null) { LogBus.log("[AA] receiver already started"); return }
         try {
-            // Encoder at the bike's native 800x384. AA streams 800x480 with the UI in a centered
-            // 800x384 viewport (margins); the decoder crops the bars onto this surface 1:1.
+            // The selected bike model drives the whole geometry: encoder at the panel's native
+            // resolution; AA streams the model's codec resolution with the UI in a centered
+            // panel-sized viewport (margins); the cropper extracts the viewport 1:1.
+            val model = BikeConfig.load(applicationContext)
+            LogBus.log("[AA] bike model: $model")
             val vp = VideoPipeline(
                 applicationContext,
-                ServiceDiscoveryResponse.BIKE_WIDTH,
-                ServiceDiscoveryResponse.BIKE_HEIGHT,
+                model.bikeWidth,
+                model.bikeHeight,
                 LogBus::log,
                 externalSource = true,
             )
@@ -103,18 +105,16 @@ class AndroidAutoService : Service() {
             pipeline = vp
             AaVideoBridge.pipeline = vp
 
-            // GL crop stage: the AA decoder renders the full 800x480 stream (UI centered in an
-            // 800x384 viewport, black margin bars top/bottom) into the cropper, which draws only
-            // the viewport onto the encoder surface. Rendering the decoder straight into the
-            // encoder surface stretches (scaling modes are ignored there), so if GL init fails
-            // we fall back to that as a degraded mode.
-            val marginX = (ServiceDiscoveryResponse.AA_WIDTH - ServiceDiscoveryResponse.BIKE_WIDTH) / 2
-            val marginY = (ServiceDiscoveryResponse.AA_HEIGHT - ServiceDiscoveryResponse.BIKE_HEIGHT) / 2
+            // GL crop stage: the AA decoder renders the full stream (UI centered in a
+            // panel-sized viewport, black margin bars around it) into the cropper, which draws
+            // only the viewport onto the encoder surface. Rendering the decoder straight into
+            // the encoder surface stretches (scaling modes are ignored there), so if GL init
+            // fails we fall back to that as a degraded mode.
             val cr = SurfaceCropper(
                 surface,
-                ServiceDiscoveryResponse.AA_WIDTH, ServiceDiscoveryResponse.AA_HEIGHT,
-                marginX, marginY,
-                ServiceDiscoveryResponse.BIKE_WIDTH, ServiceDiscoveryResponse.BIKE_HEIGHT,
+                model.aaWidth, model.aaHeight,
+                model.marginWidth / 2, model.marginHeight / 2,
+                model.bikeWidth, model.bikeHeight,
                 LogBus::log,
             )
             val decoderSurface = cr.start()

@@ -49,8 +49,10 @@ class EasyConnProber(
     @Volatile private var probed = false
     @Volatile private var video: VideoPipeline? = null
     @Volatile private var ownsVideo = false
-    @Volatile private var negW = 800
-    @Volatile private var negH = 384
+    // Mirror-mode capture size; defaults to the selected bike model's panel, overwritten by
+    // the bike's own REQ_RV_CONFIG_CAPTURE during the media handshake.
+    @Volatile private var negW = BikeConfig.model.bikeWidth
+    @Volatile private var negH = BikeConfig.model.bikeHeight
     @Volatile private var framesSent = 0
 
     fun start(network: Network?) {
@@ -231,6 +233,7 @@ class EasyConnProber(
                 val wantEncoder = if (body.size >= 12) cfg.getInt(8) else 2
                 val supportExtend = if (body.size >= 30) body[29] else 0
                 log("[$tag] REQ_CONFIG_CAPTURE w=$w h=$h fps=$fps wantEncoder=$wantEncoder ext=$supportExtend len=${body.size}")
+                logBikeReport(w, h, fps)
                 negW = w and 0xFFF0
                 negH = h and 0xFFF0
                 // RLY_RV_CONFIG_CAPTURE (17): encoder(i32) | width&~15(s16) | height&~15(s16) | ext(byte)
@@ -292,6 +295,25 @@ class EasyConnProber(
                 val preview = BleProtocol.bytesToHex(body.copyOf(minOf(32, body.size)))
                 log("[$tag] media cmdType=$cmdType len=${body.size} $preview")
             }
+        }
+    }
+
+    /**
+     * One-line summary of what THIS bike actually is, for adding new models to [BikeModel]:
+     * panel resolution from REQ_RV_CONFIG_CAPTURE plus the head-unit identity from the PXC
+     * CLIENT_INFO JSON. Users hitting a wrong/stretched picture can share their log and this
+     * line has everything needed to define the enum entry.
+     */
+    private fun logBikeReport(w: Int, h: Int, fps: Int) {
+        val info = handshake.lastClientInfo
+        val huName = info?.optString("HUName")?.ifEmpty { null } ?: "?"
+        val channel = info?.optString("channel")?.ifEmpty { null } ?: "?"
+        log("[BIKE-REPORT] *** panel=${w}x$h fps=$fps huName=$huName channel=$channel — " +
+            "share this line (plus your bike model name) to get your bike supported ***")
+        val selected = BikeConfig.model
+        if (w != selected.bikeWidth || h != selected.bikeHeight) {
+            log("[BIKE-REPORT] !! bike reports ${w}x$h but selected model is $selected — " +
+                "video will be wrong; pick the right model in Settings (or report this line)")
         }
     }
 

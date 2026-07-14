@@ -36,8 +36,8 @@ class AaReceiver(
     @Volatile private var connection: SocketAccessoryConnection? = null
     @Volatile private var steadyVideoFired = false
     private val videoDecoder = VideoDecoder().apply {
-        fallbackWidth = ServiceDiscoveryResponse.AA_WIDTH
-        fallbackHeight = ServiceDiscoveryResponse.AA_HEIGHT
+        fallbackWidth = dev.coletz.opencfmoto.BikeConfig.model.aaWidth
+        fallbackHeight = dev.coletz.opencfmoto.BikeConfig.model.aaHeight
         onFpsChanged = { fps ->
             log("[AA] decode fps=$fps")
             if (!steadyVideoFired && fps >= 25) {

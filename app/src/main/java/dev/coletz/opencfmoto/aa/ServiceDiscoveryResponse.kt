@@ -1,35 +1,40 @@
 // Adapted from headunit-revived (AGPLv3): aap/protocol/messages/ServiceDiscoveryResponse.kt
-// Video-only head-unit profile for OpenCfMoto: advertises 800x480 H.264 video with margins so
-// the phone renders the UI into a centered 800x384 viewport (cropped to the bike panel by the
-// decoder — see VideoDecoder), a driving-status sensor, a touchscreen input service, and a PCM
-// microphone (required for AA bring-up). Audio sink, navigation-status, media-playback and
+// Video-only head-unit profile for OpenCfMoto: advertises H.264 video sized for the selected
+// BikeModel with margins so the phone renders the UI into a centered panel-sized viewport
+// (extracted by SurfaceCropper), a driving-status sensor, a touchscreen input service, and a
+// PCM microphone (required for AA bring-up). Audio sink, navigation-status, media-playback and
 // bluetooth services from HUR are intentionally dropped (video-only v1 — see docs 03 M5).
 package dev.coletz.opencfmoto.aa
 
 import com.google.protobuf.Message
+import dev.coletz.opencfmoto.BikeModel
 import dev.coletz.opencfmoto.aa.proto.Common
 import dev.coletz.opencfmoto.aa.proto.Control
 import dev.coletz.opencfmoto.aa.proto.Media
 import dev.coletz.opencfmoto.aa.proto.Sensors
 
-class ServiceDiscoveryResponse
-    : AapMessage(Channel.ID_CTR, Control.ControlMsgType.MESSAGE_SERVICE_DISCOVERY_RESPONSE_VALUE, makeProto()) {
+class ServiceDiscoveryResponse(bike: BikeModel)
+    : AapMessage(Channel.ID_CTR, Control.ControlMsgType.MESSAGE_SERVICE_DISCOVERY_RESPONSE_VALUE, makeProto(bike)) {
 
     companion object {
-        // AA won't project at the bike's native 800x384; request the smallest fixed enum
-        // (800x480) and declare the leftover as margins. The phone then lays out the UI in a
-        // centered (AA_WIDTH - MARGIN_WIDTH) x (AA_HEIGHT - MARGIN_HEIGHT) viewport with black
-        // bars in the margins, so nothing is stretched. VideoDecoder crops the bars away when
-        // rendering onto the 800x384 encoder surface (SCALE_TO_FIT_WITH_CROPPING).
-        const val AA_WIDTH = 800
-        const val AA_HEIGHT = 480
-        const val BIKE_WIDTH = 800
-        const val BIKE_HEIGHT = 384
-        private const val MARGIN_WIDTH = AA_WIDTH - BIKE_WIDTH    // 0
-        private const val MARGIN_HEIGHT = AA_HEIGHT - BIKE_HEIGHT // 96 → 48px bar top + bottom
-        private const val DENSITY_DPI = 160
+        // AA only streams the fixed codec resolutions below. The BikeModel picks the smallest
+        // one containing its panel and declares the leftover as margins: the phone lays out the
+        // UI in a centered panel-sized viewport with black bars in the margins, so nothing is
+        // stretched, and SurfaceCropper extracts the viewport for the bike encoder.
+        private fun codecResolutionFor(bike: BikeModel) = when (bike.aaWidth to bike.aaHeight) {
+            800 to 480 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._800x480
+            1280 to 720 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._1280x720
+            1920 to 1080 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._1920x1080
+            2560 to 1440 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._2560x1440
+            3840 to 2160 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._3840x2160
+            720 to 1280 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._720x1280
+            1080 to 1920 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._1080x1920
+            1440 to 2560 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._1440x2560
+            2160 to 3840 -> Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._2160x3840
+            else -> error("${bike.name}: ${bike.aaWidth}x${bike.aaHeight} is not an AA codec resolution")
+        }
 
-        private fun makeProto(): Message {
+        private fun makeProto(bike: BikeModel): Message {
             val services = mutableListOf<Control.Service>()
 
             // --- Sensor service (driving status + night) ---
@@ -41,7 +46,7 @@ class ServiceDiscoveryResponse
                 }.build()
             }.build())
 
-            // --- Video service (800x480 H.264 baseline, 30 fps) ---
+            // --- Video service (H.264 baseline, 30 fps, geometry from the selected BikeModel) ---
             services.add(Control.Service.newBuilder().also { service ->
                 service.id = Channel.ID_VID
                 service.mediaSinkService = Control.Service.MediaSinkService.newBuilder().also { sink ->
@@ -50,11 +55,11 @@ class ServiceDiscoveryResponse
                     sink.availableWhileInCall = true
                     sink.addVideoConfigs(
                         Control.Service.MediaSinkService.VideoConfiguration.newBuilder().apply {
-                            codecResolution = Control.Service.MediaSinkService.VideoConfiguration.VideoCodecResolutionType._800x480
+                            codecResolution = codecResolutionFor(bike)
                             frameRate = Control.Service.MediaSinkService.VideoConfiguration.VideoFrameRateType._30
-                            setDensity(DENSITY_DPI)
-                            setMarginWidth(MARGIN_WIDTH)
-                            setMarginHeight(MARGIN_HEIGHT)
+                            setDensity(bike.densityDpi)
+                            setMarginWidth(bike.marginWidth)
+                            setMarginHeight(bike.marginHeight)
                             setVideoCodecType(Media.MediaCodecType.MEDIA_CODEC_VIDEO_H264_BP)
                         }.build()
                     )
@@ -66,8 +71,8 @@ class ServiceDiscoveryResponse
                 service.id = Channel.ID_INP
                 service.inputSourceService = Control.Service.InputSourceService.newBuilder().also { inp ->
                     inp.touchscreen = Control.Service.InputSourceService.TouchConfig.newBuilder().apply {
-                        setWidth(AA_WIDTH)
-                        setHeight(AA_HEIGHT)
+                        setWidth(bike.aaWidth)
+                        setHeight(bike.aaHeight)
                     }.build()
                 }.build()
             }.build())

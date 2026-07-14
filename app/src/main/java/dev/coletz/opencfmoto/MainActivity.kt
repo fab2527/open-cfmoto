@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        BikeConfig.load(applicationContext)
         prober = EasyConnProber(applicationContext, ::log)
 
         // Android 13+: request notification permission up front so the mediaProjection
@@ -168,6 +169,8 @@ class MainActivity : AppCompatActivity() {
             ProjectionService.stop(this)
             BikeWifi.leave(this, ::log)
         }
+
+        findViewById<Button>(R.id.btn_settings).setOnClickListener { showSettingsDialog() }
 
         findViewById<Button>(R.id.btn_share_log).setOnClickListener { shareLog() }
 
@@ -248,6 +251,26 @@ class MainActivity : AppCompatActivity() {
                 }
             },
         ).also { it.start() }
+    }
+
+    private fun showSettingsDialog() {
+        val models = BikeModel.entries
+        val labels = models.map { "${it.displayName}  (${it.bikeWidth}x${it.bikeHeight})" }.toTypedArray()
+        val current = models.indexOf(BikeConfig.model)
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Bike model")
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                val model = models[which]
+                BikeConfig.save(applicationContext, model)
+                log("→ bike model set: $model")
+                if (AndroidAutoService.isRunning) {
+                    log("!! Android Auto is running — the new model applies on the next Start")
+                    Toast.makeText(this, "Applies on next Start", Toast.LENGTH_SHORT).show()
+                }
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun ensureLocationPermission() {
